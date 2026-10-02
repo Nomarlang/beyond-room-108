@@ -22,7 +22,4 @@ img { display: block; max-width: 100%; height: auto; max-height: 420px; object-f
 .opening { font-style: italic; }
 #status { font-weight: 600; }
 [hidden] { display: none !important; }
-#camera-dialog { width: min(600px, calc(100% - 24px)); max-height: 90dvh; overflow: auto; border: 1px solid #ccd1d8; border-radius: 6px; padding: 16px; }
-#camera-dialog::backdrop { background: rgb(0 0 0 / 65%); }
-#camera-video { display: block; width: 100%; max-height: 55dvh; object-fit: contain; background: #111; }
 @media (max-width: 420px) { .actions > * { flex: 1 1 auto; } }

@@ -10,11 +10,11 @@ for (let i = 0; i < 3; i++) {
   const section = document.createElement('section');
   section.innerHTML = `<h2>Scene ${i + 1}</h2>
     <div class="actions">
-      <label class="file-button">Choose photo<input type="file" accept="image/*" data-scene="${i}" aria-label="Choose photo for Scene ${i + 1}"></label>
-      <button type="button" data-camera-scene="${i}" aria-label="Take photo for Scene ${i + 1}">Take photo</button>
+      <button id="choose-${i}" type="button" aria-label="Choose photo for Scene ${i + 1}">Choose photo</button>
+      <input id="file-${i}" type="file" accept="image/*" data-scene="${i}" aria-label="Choose photo for Scene ${i + 1}" hidden>
     </div>
     <img id="photo-${i}" hidden alt="Your Scene ${i + 1} photo">
-    <p id="info-${i}" class="photo-info">Choose one photo. Maximum file size: 25 MB.</p>
+    <p id="info-${i}" class="photo-info" role="status" aria-live="polite">Choose one photo. Maximum file size: 25 MB.</p>
     <label for="paragraph-${i}">Write a short paragraph for Scene ${i + 1}</label>
     <textarea id="paragraph-${i}" rows="5" maxlength="3000" required></textarea>`;
   $('scenes').append(section);
@@ -28,6 +28,24 @@ function invalidatePdf() {
   $('pdf-link').removeAttribute('href');
 }
 
+// Bound browser image operations so failures always unlock the picker.
+function photoTimeout(promise) {
+  let timer;
+  return Promise.race([promise, new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Photo processing took too long. Choose a smaller photo saved on this device.')), 30000);
+  })]).finally(() => clearTimeout(timer));
+}
+async function loadPhotoImage(img, source) {
+  try {
+    await photoTimeout(new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('This browser cannot open that photo. Choose a JPEG or PNG. For HEIC photos, export as JPEG first.'));
+      img.src = source;
+    }));
+    if (img.decode) await photoTimeout(img.decode());
+  } finally { img.onload = img.onerror = null; }
+}
+
 // The browser decodes EXIF orientation. Do not rotate a second time.
 // Only one original is decoded at a time; only resized JPEGs stay in state.
 async function compressPhoto(file) {
@@ -36,11 +54,7 @@ async function compressPhoto(file) {
   const img = new Image();
   const canvas = document.createElement('canvas');
   try {
-    await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = () => reject(new Error('This browser cannot open that photo. Choose a JPEG or PNG, or take a new photo. For HEIC photos, export as JPEG first.'));
-      img.src = url;
-    });
+    await loadPhotoImage(img, url);
     if (!img.naturalWidth || img.naturalWidth * img.naturalHeight > 50000000) {
       throw new Error('This photo is too large to process safely. Choose a photo below 50 megapixels.');
     }
@@ -52,14 +66,14 @@ async function compressPhoto(file) {
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', .8));
+    const blob = await photoTimeout(new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', .8)));
     if (!blob) throw new Error('Could not process this photo. Please choose another photo.');
-    const data = await new Promise((resolve, reject) => {
+    const data = await photoTimeout(new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
+      reader.onerror = () => reject(new Error('Could not read this photo. Please choose a locally saved JPEG or PNG.'));
       reader.readAsDataURL(blob);
-    });
+    }));
     return { data, width: canvas.width, height: canvas.height, bytes: blob.size };
   } finally {
     img.src = '';
@@ -68,135 +82,56 @@ async function compressPhoto(file) {
   }
 }
 
-function setScenePhoto(i, photo) {
+async function setScenePhoto(i, photo) {
+  const preview = new Image();
+  preview.id = `photo-${i}`;
+  preview.alt = `Your Scene ${i + 1} photo`;
+  await loadPhotoImage(preview, photo.data);
+  // Keep the previous image until its replacement has actually decoded.
+  $(`photo-${i}`).replaceWith(preview);
   photos[i] = photo;
-  $(`photo-${i}`).src = photo.data;
-  $(`photo-${i}`).hidden = false;
-  $(`info-${i}`).textContent = `${photo.width} × ${photo.height} pixels · ${Math.round(photo.bytes / 1024)} KB. You can choose a different photo.`;
+  $(`info-${i}`).textContent = `Photo loaded. ${photo.width} × ${photo.height} pixels · ${Math.round(photo.bytes / 1024)} KB. You can choose a different photo.`;
   invalidatePdf();
   status(`Scene ${i + 1} photo is ready.`);
 }
 
-// One camera dialog serves all scenes. Session identity prevents late permission
-// responses or captures from updating a scene after the user cancels.
-const cameraDialog = document.createElement('dialog');
-cameraDialog.id = 'camera-dialog';
-cameraDialog.setAttribute('aria-labelledby', 'camera-title');
-cameraDialog.innerHTML = `<h2 id="camera-title">Take photo</h2>
-  <video id="camera-video" autoplay muted playsinline aria-label="Live camera preview"></video>
-  <p id="camera-status" role="status" aria-live="polite"></p>
-  <div class="actions">
-    <button id="camera-capture" type="button" disabled>Capture photo</button>
-    <button id="camera-cancel" type="button">Cancel</button>
-  </div>`;
-document.body.append(cameraDialog);
-let cameraSession = null;
-
-function closeCamera() {
-  if (!cameraSession) return;
-  const session = cameraSession;
-  cameraSession = null;
-  session.stream?.getTracks().forEach(track => track.stop());
-  $('camera-video').pause();
-  $('camera-video').srcObject = null;
-  if (cameraDialog.open) cameraDialog.close();
-  busy = false;
-  $('editor').disabled = false;
-  document.querySelector(`[data-camera-scene="${session.scene}"]`).focus();
-}
-
-async function openCamera(scene) {
-  if (busy) return;
-  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-    status('The in-app camera needs HTTPS on your phone. This local-network HTTP address cannot use it. You can still use Choose photo.');
-    return;
-  }
-  busy = true;
-  $('editor').disabled = true;
-  const session = { scene, stream: null };
-  cameraSession = session;
-  $('camera-title').textContent = `Take photo for Scene ${scene + 1}`;
-  $('camera-status').textContent = 'Allow camera access to see the preview.';
-  $('camera-capture').disabled = true;
-  cameraDialog.showModal();
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1600 }, height: { ideal: 1200 } }
-    });
-    if (cameraSession !== session) { stream.getTracks().forEach(track => track.stop()); return; }
-    session.stream = stream;
-    stream.getVideoTracks().forEach(track => track.addEventListener('ended', () => {
-      if (cameraSession === session) { closeCamera(); status('The camera stopped. Tap Take photo to try again.'); }
-    }));
-    const video = $('camera-video');
-    video.srcObject = stream;
-    await video.play();
-    if (cameraSession !== session) return;
-    $('camera-capture').disabled = !(video.videoWidth && video.videoHeight && video.readyState >= 2);
-    $('camera-status').textContent = 'Frame your photo, then tap Capture photo.';
-  } catch (error) {
-    if (cameraSession !== session) return;
-    closeCamera();
-    const messages = {
-      NotAllowedError: 'Camera access was blocked. Allow camera access in your browser settings, or use Choose photo.',
-      NotFoundError: 'No camera was found. Use Choose photo instead.',
-      NotReadableError: 'The camera is unavailable. Close other apps using it and try again.'
-    };
-    status(messages[error.name] || 'Could not open the camera. Please try again or use Choose photo.');
-  }
-}
-
-$('camera-video').addEventListener('canplay', () => {
-  if (cameraSession && !cameraSession.capturing) $('camera-capture').disabled = false;
-});
-$('camera-capture').addEventListener('click', async () => {
-  const session = cameraSession;
-  const video = $('camera-video');
-  if (!session || session.capturing || !video.videoWidth || video.readyState < 2) return;
-  session.capturing = true;
-  $('camera-capture').disabled = true;
-  $('camera-status').textContent = 'Preparing your photo…';
-  const canvas = document.createElement('canvas');
-  try {
-    const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
-    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', .9));
-    if (!blob) throw new Error('Could not capture this photo. Please try again.');
-    const photo = await compressPhoto(blob);
-    if (cameraSession !== session) return;
-    setScenePhoto(session.scene, photo);
-    closeCamera();
-  } catch (error) {
-    if (cameraSession !== session) return;
-    session.capturing = false;
-    $('camera-capture').disabled = false;
-    $('camera-status').textContent = error.message || 'Could not capture this photo. Please try again.';
-  } finally { canvas.width = canvas.height = 1; }
-});
-document.querySelectorAll('[data-camera-scene]').forEach(button => {
-  button.addEventListener('click', () => openCamera(Number(button.dataset.cameraScene)));
-});
-$('camera-cancel').addEventListener('click', closeCamera);
-cameraDialog.addEventListener('cancel', event => { event.preventDefault(); closeCamera(); });
-window.addEventListener('pagehide', closeCamera);
-document.addEventListener('visibilitychange', () => { if (document.hidden) closeCamera(); });
-
+// Keep processing sequential to limit memory, but never drop a new selection.
+let photoQueue = Promise.resolve();
+let pendingPhotos = 0;
 document.querySelectorAll('input[type=file]').forEach(input => {
-  input.addEventListener('change', async () => {
+  const i = Number(input.dataset.scene);
+  const button = $(`choose-${i}`);
+  button.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => {
     const file = input.files[0];
-    if (!file || busy) return;
+    if (!file) return; // Cancelling the picker preserves the current photo.
+    pendingPhotos++;
     busy = true;
-    $('editor').disabled = true;
-    const i = Number(input.dataset.scene);
-    status(`Preparing Scene ${i + 1} photo…`);
-    try {
-      const photo = await compressPhoto(file);
-      setScenePhoto(i, photo);
-    } catch (error) { status(error.message || 'Could not process this photo. Please try again.'); }
-    finally { input.value = ''; busy = false; $('editor').disabled = false; }
+    button.disabled = true;
+    $('story-form').querySelector('button[type=submit]').disabled = true;
+    $(`info-${i}`).textContent = pendingPhotos > 1 ? 'Photo selected. Waiting to process…' : 'Processing photo…';
+    $(`info-${i}`).setAttribute('aria-busy', 'true');
+    photoQueue = photoQueue.then(async () => {
+      $(`info-${i}`).textContent = 'Processing photo…';
+      status(`Preparing Scene ${i + 1} photo…`);
+      // Let the browser paint progress before decoding/drawing a large photo.
+      await new Promise(resolve => setTimeout(resolve, 0));
+      try {
+        const photo = await compressPhoto(file);
+        await setScenePhoto(i, photo);
+      } catch (error) {
+        const message = error.message || 'Could not process this photo. Please choose it again.';
+        $(`info-${i}`).textContent = message + (photos[i] ? ' Your previous photo is still selected.' : '');
+        status(message);
+      } finally {
+        input.value = ''; // Allow selecting the same file again after success or failure.
+        button.disabled = false;
+        $(`info-${i}`).setAttribute('aria-busy', 'false');
+        pendingPhotos--;
+        busy = pendingPhotos > 0;
+        $('story-form').querySelector('button[type=submit]').disabled = busy;
+      }
+    });
   });
 });
 
@@ -220,7 +155,7 @@ $('story-form').addEventListener('submit', event => {
   const missing = data.scenes.findIndex(scene => !scene.photo);
   if (missing !== -1) {
     status(`Please choose a photo for Scene ${missing + 1}.`);
-    document.querySelector(`input[data-scene="${missing}"]`).focus();
+    $(`choose-${missing}`).focus();
     return;
   }
   if (!data.name || data.scenes.some(scene => !scene.text) || !data.ending) {
