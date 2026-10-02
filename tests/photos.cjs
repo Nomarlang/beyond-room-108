@@ -32,6 +32,7 @@ const fixture = name => path.join(__dirname, 'output', name + '.jpg');
       HTMLCanvasElement.prototype.toBlob = function (cb, ...args) { encodePhoto.call(this, blob => setTimeout(() => cb(blob), 500), ...args); };
     });
     for (const [i, name] of ['landscape', 'portrait', 'rotated'].entries()) {
+      await page.evaluate(i => showStep(i + 1, false), i);
       const chooserEvent = page.waitForEvent('filechooser');
       await page.locator(`#choose-${i}`).tap();
       await (await chooserEvent).setFiles(fixture(name));
@@ -41,6 +42,7 @@ const fixture = name => path.join(__dirname, 'output', name + '.jpg');
     await page.waitForFunction(() => !busy);
     assert.deepEqual(await page.evaluate(() => photos.map(p => [p.width, p.height])), [[1600, 1200], [1200, 1600], [1200, 1600]]);
     for (let i = 0; i < 3; i++) {
+      await page.evaluate(i => showStep(i + 1, false), i);
       assert.match(await page.locator(`#info-${i}`).innerText(), /Photo loaded/);
       assert(await page.locator(`#photo-${i}`).evaluate(img => img.complete && img.naturalWidth > 0 && !img.hidden));
       // Reselect the same image, then a replacement, through each real button.

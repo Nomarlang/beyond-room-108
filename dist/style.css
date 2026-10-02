@@ -1,25 +1,56 @@
-* { box-sizing: border-box; }
-body { margin: 0; color: #17202a; background: #f5f6f8; font: 1rem/1.55 system-ui, sans-serif; }
-main { max-width: 760px; margin: auto; padding: 20px 16px 64px; }
-h1 { margin: 0; font-size: 2rem; }
-h2 { font-size: 1.35rem; margin-top: 0; }
-h3 { font-size: 1.15rem; }
-fieldset { border: 0; padding: 0; min-width: 0; }
-section, article { background: white; border: 1px solid #ccd1d8; border-radius: 6px; padding: 16px; margin: 20px 0; }
-label { display: block; font-weight: 600; margin: 12px 0 6px; }
-input, textarea, button { font: inherit; }
-input:not([type=file]), textarea { width: 100%; border: 1px solid #657080; border-radius: 4px; padding: 12px; }
-textarea { resize: vertical; min-height: 120px; }
-button, .file-button { display: inline-flex; justify-content: center; align-items: center; min-height: 48px; border: 1px solid #1d4ed8; border-radius: 4px; padding: 10px 16px; background: #1d4ed8; color: white; cursor: pointer; font-weight: 600; margin: 0; }
-.actions { display: flex; flex-wrap: wrap; gap: 12px; }
-.file-button { position: relative; overflow: hidden; }
-.file-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
-:focus-visible, .file-button:focus-within { outline: 3px solid #b45309; outline-offset: 3px; }
-button:disabled, fieldset:disabled .file-button { opacity: .55; cursor: wait; }
-img { display: block; max-width: 100%; height: auto; max-height: 420px; object-fit: contain; margin: 14px auto; }
-.photo-info { font-size: .9rem; }
-.story-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-.opening { font-style: italic; }
-#status { font-weight: 600; }
-[hidden] { display: none !important; }
-@media (max-width: 420px) { .actions > * { flex: 1 1 auto; } }
+:root { --cream:#faf6ec; --navy:#0d2d50; --pink:#da0069; --line:#d9d4c8; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--cream); color:var(--navy); font:1rem/1.65 system-ui,sans-serif; }
+main { max-width:880px; margin:auto; padding:24px 28px 48px; }
+.masthead { display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); padding-bottom:14px; }
+.eyebrow,.chapter { font-size:.75rem; font-weight:700; letter-spacing:.13em; }
+.star { color:var(--pink); font-size:1.5rem; }
+.title-block { padding:30px 0 26px; }
+.title-block .eyebrow { color:#526476; margin:0 0 10px; }
+h1,h2,h3 { font-family:Georgia,'Times New Roman',serif; line-height:1.12; font-weight:normal; }
+h1 { font-size:clamp(2.7rem,7vw,4.8rem); margin:0; letter-spacing:-.045em; }
+h1 em { color:var(--pink); font-style:normal; }
+h2 { font-size:clamp(1.9rem,4vw,2.65rem); margin:12px 0 20px; letter-spacing:-.025em; }
+h3 { font-size:1.5rem; }
+p { margin:12px 0 20px; }
+#progress { display:flex; list-style:none; padding:0; margin:0 0 30px; counter-reset:step; gap:5px; }
+#progress li { flex:1; font-size:.875rem; border-top:2px solid var(--line); padding-top:9px; color:#586574; }
+#progress li::before { counter-increment:step; content:counter(step,decimal-leading-zero); display:block; font-size:.7rem; letter-spacing:.08em; }
+#progress li.active { border-color:var(--pink); color:var(--navy); font-weight:700; }
+fieldset { padding:0; margin:0; border:0; min-width:0; }
+.step { background:#fffdf7; padding:30px 34px; border:1px solid var(--line); border-radius:4px; scroll-margin-top:20px; }
+.chapter { color:var(--pink); }
+.story-start { border-left:2px solid var(--pink); margin:26px 0; padding:4px 0 4px 20px; }
+.story-start p { margin:8px 0 0; }
+.opening { font-family:Georgia,serif; font-style:italic; font-size:1.3rem; line-height:1.6; }
+label { display:block; font-size:.9rem; font-weight:650; margin:20px 0 9px; }
+input,textarea,button { font:inherit; }
+input:not([type=file]),textarea { width:100%; padding:14px 16px; color:var(--navy); border:1px solid #a7adae; border-radius:3px; background:#fffefb; }
+input::placeholder,textarea::placeholder { color:#747b80; }
+textarea { resize:vertical; min-height:160px; line-height:1.8; }
+button { min-height:48px; border:1px solid var(--navy); background:var(--navy); color:var(--cream); padding:12px 23px; border-radius:3px; cursor:pointer; font-size:.95rem; font-weight:600; }
+button:hover { background:#183f67; }
+button:disabled { opacity:.55; cursor:wait; }
+button.secondary { background:transparent; color:var(--navy); border-color:#a7adae; }
+button[id^=choose-] { background:transparent; border-color:var(--navy); color:var(--navy); }
+:focus-visible { outline:3px solid var(--pink); outline-offset:4px; }
+.step-actions { display:flex; justify-content:space-between; gap:12px; margin-top:22px; }
+#next { margin-left:auto; }
+.actions { display:flex; flex-wrap:wrap; gap:12px; }
+.step img { display:block; width:auto; max-width:100%; height:auto; max-height:420px; object-fit:contain; margin:22px auto; border-radius:2px; }
+.photo-info { font-size:.85rem; color:#536373; margin:12px 0 20px; }
+.photo-info[aria-busy=true] { color:var(--pink); font-weight:600; }
+#status { font-size:.9rem; font-weight:600; }
+#status:empty { display:none; }
+.privacy { max-width:650px; color:#65707b; font-size:.8rem; margin:32px auto 0; text-align:center; }
+#preview { margin-top:24px; }
+#story { border:1px solid var(--line); background:#fffdf7; padding:40px; margin:24px 0; }
+#story h2 { font-size:2.8rem; }
+#story h3 { border-top:1px solid var(--line); padding-top:26px; margin-top:36px; }
+#story img { display:block; max-width:100%; max-height:650px; width:auto; height:auto; margin:24px auto; }
+#story .story-text { font:1.15rem/1.9 Georgia,serif; white-space:pre-wrap; overflow-wrap:anywhere; }
+#story .byline { font: .9rem/1.6 system-ui,sans-serif; color:#536373; }
+#download { background:var(--pink); border-color:var(--pink); }
+a { color:var(--navy); }
+[hidden] { display:none !important; }
+@media(max-width:520px) { main { padding:18px 18px 40px; } .title-block { padding:25px 0; } .step { padding:24px 20px; } #progress { margin-bottom:22px; } #progress li { font-size:.875rem; overflow-wrap:anywhere; } #story { padding:24px 20px; } #story h2 { font-size:2.1rem; } .step-actions button { padding:12px 16px; } .actions > button { flex:1 1 auto; } }

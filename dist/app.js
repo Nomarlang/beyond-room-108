@@ -1,21 +1,27 @@
 'use strict';
 
 const $ = (id) => document.getElementById(id);
-const opening = 'We entered Room 108 and we found ourselves in...';
+const opening = 'We entered Room 108 and we found ourselves in…';
 const photos = [null, null, null];
 let busy = false;
 let pdfUrl = null;
 
 for (let i = 0; i < 3; i++) {
   const section = document.createElement('section');
-  section.innerHTML = `<h2>Scene ${i + 1}</h2>
+  section.id = `scene-${i}`;
+  section.className = 'step';
+  section.hidden = true;
+  const titles = ['Where are you?', 'Room 108 takes you somewhere new.', 'Where does Room 108 take you next?'];
+  const prompts = ['Choose your first place. What can you see? What happens there?', 'You are in a new place. What happens next?', 'You are in your third place. What happens here?'];
+  section.innerHTML = `<span class="chapter">WORLD 0${i + 1} / 03</span><h2 tabindex="-1">${titles[i]}</h2><p>${prompts[i]}</p>
+    ${i === 0 ? `<p class="opening">${opening}</p>` : ''}
     <div class="actions">
       <button id="choose-${i}" type="button" aria-label="Choose photo for Scene ${i + 1}">Choose photo</button>
       <input id="file-${i}" type="file" accept="image/*" data-scene="${i}" aria-label="Choose photo for Scene ${i + 1}" hidden>
     </div>
     <img id="photo-${i}" hidden alt="Your Scene ${i + 1} photo">
     <p id="info-${i}" class="photo-info" role="status" aria-live="polite">Choose one photo. Maximum file size: 25 MB.</p>
-    <label for="paragraph-${i}">Write a short paragraph for Scene ${i + 1}</label>
+    <label for="paragraph-${i}">Scene ${i + 1} · What happens?</label>
     <textarea id="paragraph-${i}" rows="5" maxlength="3000" required></textarea>`;
   $('scenes').append(section);
 }
@@ -148,29 +154,44 @@ function textElement(tag, text, className = '') {
   el.className = className;
   return el;
 }
+let currentStep = 0;
+const steps = [$('mission'), $('scene-0'), $('scene-1'), $('scene-2'), $('ending-step')];
+function showStep(index, focus = true) {
+  currentStep = index;
+  steps.forEach((step, i) => { step.hidden = i !== index; });
+  [...$('progress').children].forEach((item, i) => {
+    item.classList.toggle('active', i === index);
+    if (i === index) item.setAttribute('aria-current', 'step');
+    else item.removeAttribute('aria-current');
+  });
+  $('back').hidden = index === 0;
+  $('next').textContent = index === 0 ? 'Enter Room 108' : index === 4 ? 'See my story' : index === 3 ? 'Write the ending' : index === 1 ? 'Go to Scene 2' : 'Go to Scene 3';
+  status('');
+  if (focus) { steps[index].querySelector('h2').focus(); steps[index].scrollIntoView({ block: 'start' }); }
+}
+showStep(0, false);
+$('back').addEventListener('click', () => { if (!busy) showStep(currentStep - 1); });
 $('story-form').addEventListener('submit', event => {
   event.preventDefault();
   if (busy) return;
+  const field = currentStep === 0 ? $('student') : currentStep === 4 ? $('ending') : $(`paragraph-${currentStep - 1}`);
+  if (currentStep > 0 && currentStep < 4 && !photos[currentStep - 1]) {
+    status(`Please choose a photo for Scene ${currentStep}.`);
+    $(`choose-${currentStep - 1}`).focus(); return;
+  }
+  field.setCustomValidity(field.value.trim() ? '' : 'Please write something before continuing.');
+  if (!field.reportValidity()) return;
+  if (currentStep < 4) { showStep(currentStep + 1); return; }
   const data = readStory();
-  const missing = data.scenes.findIndex(scene => !scene.photo);
-  if (missing !== -1) {
-    status(`Please choose a photo for Scene ${missing + 1}.`);
-    $(`choose-${missing}`).focus();
-    return;
-  }
-  if (!data.name || data.scenes.some(scene => !scene.text) || !data.ending) {
-    status('Please write your name, all three paragraphs, and an ending.');
-    return;
-  }
   const article = $('story');
-  article.replaceChildren(textElement('h2', 'Room 108'), textElement('p', data.name, 'story-text'), textElement('p', opening, 'opening'));
+  article.replaceChildren(textElement('h2', 'Beyond Room 108'), textElement('p', `A story by ${data.name}`, 'byline story-text'), textElement('p', opening, 'opening'));
   data.scenes.forEach((scene, i) => {
     const img = new Image();
     img.src = scene.photo.data;
     img.alt = `Scene ${i + 1}`;
-    article.append(textElement('h3', `Scene ${i + 1}`), img, textElement('p', scene.text, 'story-text'));
+    article.append(textElement('h3', `World ${String(i + 1).padStart(2, '0')}`), img, textElement('p', scene.text, 'story-text'));
   });
-  article.append(textElement('h3', 'Final ending'), textElement('p', data.ending, 'story-text'));
+  article.append(textElement('h3', 'The ending'), textElement('p', data.ending, 'story-text'));
   $('story-form').hidden = true;
   $('preview').hidden = false;
   status('Check your story, then download your PDF.');
@@ -180,9 +201,9 @@ $('edit').addEventListener('click', () => {
   $('preview').hidden = true;
   $('story-form').hidden = false;
   status('');
-  $('student').focus();
+  showStep(4);
 });
-$('story-form').addEventListener('input', invalidatePdf);
+$('story-form').addEventListener('input', event => { event.target.setCustomValidity?.(''); invalidatePdf(); });
 
 // PDF paragraphs use browser-shaped text so Thai names and punctuation also work.
 // Render small, paginated text blocks, never a giant screenshot of the story.
@@ -213,13 +234,21 @@ function wrapText(ctx, text, maxWidth) {
 function buildPdf(data) {
   if (!window.jspdf) throw new Error('The PDF library is missing. Keep the vendor folder with the app and reload.');
   const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', compress: true });
-  doc.setProperties({ title: 'Room 108', author: data.name });
-  const margin = 18, width = 174, bottom = 276;
-  let y = margin;
-  const newPage = () => { doc.addPage(); y = margin; };
+  doc.setProperties({ title: 'Beyond Room 108', author: data.name });
+  const margin = 20, width = 170, bottom = 274;
+  const cream = [250, 246, 236], navy = [13, 45, 80], pink = [218, 0, 105];
+  const decorate = () => {
+    doc.setFillColor(...cream); doc.rect(0, 0, 210, 297, 'F');
+    doc.setDrawColor(...pink); doc.setLineWidth(.5); doc.line(margin, 14, margin + 16, 14);
+    doc.setTextColor(...navy); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text('BEYOND ROOM 108', margin + 21, 15);
+  };
+  let y = 25;
+  decorate();
+  const newPage = () => { doc.addPage(); decorate(); y = 25; };
   const heading = (text, size = 16) => {
     if (y + 16 > bottom) newPage();
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(size);
+    doc.setTextColor(...navy); doc.setFont('times', 'bold'); doc.setFontSize(size);
     doc.text(text, margin, y + 6); y += 14;
   };
   const paragraph = text => {
@@ -227,7 +256,7 @@ function buildPdf(data) {
     const pixelsPerMm = 6;
     canvas.width = width * pixelsPerMm;
     const ctx = canvas.getContext('2d');
-    const font = '26px Arial, sans-serif'; // ~12 pt, rendered at ~152 dpi
+    const font = '27px Georgia, serif'; // ~12 pt, rendered at ~152 dpi
     ctx.font = font;
     const lines = wrapText(ctx, text, canvas.width - 8);
     const lineHeight = 40;
@@ -236,8 +265,8 @@ function buildPdf(data) {
       if (count < 1) { newPage(); count = Math.floor((bottom - y) * pixelsPerMm / lineHeight); }
       const chunk = lines.splice(0, count);
       canvas.height = chunk.length * lineHeight;
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.font = font; ctx.fillStyle = '#111'; ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = '#faf6ec'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = font; ctx.fillStyle = '#0d2d50'; ctx.textBaseline = 'alphabetic';
       chunk.forEach((line, i) => ctx.fillText(line, 2, i * lineHeight + 29));
       const height = canvas.height / pixelsPerMm;
       doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, y, width, height);
@@ -247,14 +276,15 @@ function buildPdf(data) {
     canvas.width = canvas.height = 1;
     y += 5;
   };
-  heading('Room 108', 24);
-  paragraph(data.name);
+  heading('Beyond Room 108', 32);
+  paragraph(`A story by ${data.name}`);
   paragraph(opening);
   data.scenes.forEach((scene, i) => {
     if (i > 0) newPage();
-    heading(`Scene ${i + 1}`);
+    doc.setTextColor(...pink); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+    doc.text(`WORLD 0${i + 1}`, margin, y + 5); y += 12;
     const photo = scene.photo;
-    const maxHeight = Math.min(125, bottom - y - 18);
+    const maxHeight = Math.min(155, bottom - y - 28);
     const scale = Math.min(width / photo.width, maxHeight / photo.height);
     const w = photo.width * scale, h = photo.height * scale;
     doc.addImage(photo.data, 'JPEG', margin + (width - w) / 2, y, w, h);
@@ -262,12 +292,14 @@ function buildPdf(data) {
     paragraph(scene.text);
   });
   if (y + 35 > bottom) newPage();
-  heading('Final ending');
+  heading('The ending', 20);
   paragraph(data.ending);
   const total = doc.getNumberOfPages();
   for (let page = 1; page <= total; page++) {
     doc.setPage(page); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    doc.text(`Room 108 | ${page} / ${total}`, 105, 288, { align: 'center' });
+    doc.setDrawColor(...pink); doc.line(98, 282, 112, 282);
+    doc.setTextColor(...navy);
+    doc.text(`${page} / ${total}`, 105, 289, { align: 'center' });
   }
   return doc.output('blob');
 }
@@ -283,7 +315,7 @@ $('download').addEventListener('click', () => {
     pdfUrl = URL.createObjectURL(blob);
     const link = $('pdf-link');
     link.href = pdfUrl;
-    link.download = 'Room-108.pdf';
+    link.download = 'Beyond-Room-108.pdf';
     $('download-help').hidden = false;
     link.click();
     status('Your PDF is ready. Check your downloads, or use the link below.');
